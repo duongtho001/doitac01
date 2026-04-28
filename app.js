@@ -110,14 +110,45 @@ async function handleFiles(files){
       const d = await r.json();
       if(d.path){
         uploadedPaths.push(d.path);
+        const idx = uploadedPaths.length - 1;
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'position:relative;display:inline-block';
+        wrap.dataset.uploadIdx = idx;
         const img = document.createElement('img');
         img.src = URL.createObjectURL(f);
         img.className = 'upload-thumb';
-        thumbs.appendChild(img);
+        const btn = document.createElement('button');
+        btn.textContent = '×';
+        btn.style.cssText = 'position:absolute;top:-4px;right:-4px;width:18px;height:18px;border-radius:50%;background:var(--err);color:#fff;border:none;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;line-height:1';
+        btn.onclick = () => removeUpload(idx, wrap);
+        wrap.appendChild(img);
+        wrap.appendChild(btn);
+        thumbs.appendChild(wrap);
         toast('Upload OK: '+f.name,'ok');
+        updateUploadCount();
       }
     }catch(e){ toast('Upload lỗi: '+e.message,'err'); }
   }
+}
+
+function removeUpload(idx, el){
+  uploadedPaths[idx] = null; // Mark as removed
+  el.remove();
+  updateUploadCount();
+  toast('Đã xóa ảnh tham chiếu','ok');
+}
+
+function clearAllUploads(){
+  uploadedPaths = [];
+  document.getElementById('r2iThumbs').innerHTML = '';
+  updateUploadCount();
+  toast('Đã xóa tất cả ảnh tham chiếu','ok');
+}
+
+function updateUploadCount(){
+  const count = uploadedPaths.filter(p => p).length;
+  const el = document.getElementById('r2iUploadInfo');
+  if(el) el.textContent = count > 0 ? `${count} ảnh đã upload` : '';
 }
 
 // ── T2I ──
@@ -153,6 +184,9 @@ async function startR2I(){
   if(!uploadedPaths.length) return toast('Upload ảnh tham chiếu trước','err');
   const lines = document.getElementById('r2iPrompts').value.trim().split('\n').filter(l=>l.trim());
   if(!lines.length) return toast('Nhập ít nhất 1 prompt','err');
+  // Filter out removed uploads
+  const activePaths = uploadedPaths.filter(p => p);
+  if(!activePaths.length) return toast('Upload ảnh tham chiếu trước','err');
   const ratio = getRatio('r2iRatio');
   const upscale = getRatio('r2iUpscale');
   const btn = document.getElementById('r2iBtn');
@@ -160,7 +194,7 @@ async function startR2I(){
   try{
     const r = await fetch(`${API}/public/api/v1/reference-to-image`,{
       method:'POST', headers:H(),
-      body:JSON.stringify({prompts:lines, reference_images:uploadedPaths, aspect_ratio:ratio, upscale_quality:upscale})
+      body:JSON.stringify({prompts:lines, reference_images:activePaths, aspect_ratio:ratio, upscale_quality:upscale})
     });
     const d = await r.json();
     if(d.job_id){
