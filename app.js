@@ -167,6 +167,12 @@ async function startT2I(){
       body:JSON.stringify({prompts:lines, aspect_ratio:ratio, num_images:num, upscale_quality:upscale})
     });
     const d = await r.json();
+    if(!r.ok){
+      const msg = d.detail || d.error || d.message || 'Lỗi không xác định';
+      toast(`❌ ${msg}`, 'err');
+      btn.disabled = false; btn.textContent = '🚀 Tạo ảnh';
+      return;
+    }
     if(d.job_id){
       const job = {id:d.job_id, type:'T2I', prompts:lines, status:'queued', progress:0};
       jobs.unshift(job);
@@ -197,6 +203,12 @@ async function startR2I(){
       body:JSON.stringify({prompts:lines, reference_images:activePaths, aspect_ratio:ratio, upscale_quality:upscale})
     });
     const d = await r.json();
+    if(!r.ok){
+      const msg = d.detail || d.error || d.message || 'Lỗi không xác định';
+      toast(`❌ ${msg}`, 'err');
+      btn.disabled = false; btn.textContent = '🖼️ Tạo ảnh tham chiếu';
+      return;
+    }
     if(d.job_id){
       const job = {id:d.job_id, type:'R2I', prompts:lines, status:'queued', progress:0};
       jobs.unshift(job);
@@ -426,19 +438,40 @@ async function loadUsage(){
   try{
     const r = await fetch(`${API}/public/api/v1/usage`,{headers:{'X-API-Key':KEY}});
     const d = await r.json();
-    document.getElementById('uCredits').textContent = d.credits_remaining ?? '-';
-    document.getElementById('uImages').textContent = d.image_used ?? '-';
-    document.getElementById('uImgRemain').textContent = d.image_remaining ?? '-';
-    document.getElementById('uDays').textContent = d.days_remaining ?? '-';
+    const cr = Math.max(0, d.credits_remaining ?? 0);
+    const imgR = Math.max(0, d.image_remaining ?? 0);
+    const days = Math.max(0, d.days_remaining ?? 0);
+    const imgU = d.image_used ?? 0;
+    const vidU = d.video_used ?? 0;
+    const vidR = Math.max(0, d.video_remaining ?? 0);
+
+    document.getElementById('uCredits').textContent = cr;
+    document.getElementById('uCredits').style.color = cr <= 0 ? 'var(--err)' : '';
+    document.getElementById('uImages').textContent = imgU;
+    document.getElementById('uImgRemain').textContent = imgR;
+    document.getElementById('uImgRemain').style.color = imgR <= 0 ? 'var(--err)' : '';
+    document.getElementById('uDays').textContent = days;
+    document.getElementById('uDays').style.color = days <= 0 ? 'var(--err)' : '';
+
+    // Warnings
+    const warns = [];
+    if(cr <= 0) warns.push('⛔ Hết credits!');
+    if(imgR <= 0 && (d.image_quota||0) > 0) warns.push('⛔ Hết quota ảnh!');
+    if(vidR <= 0 && (d.video_quota||0) > 0) warns.push('⛔ Hết quota video!');
+    if(days <= 0 && d.expires_at) warns.push('⛔ Key đã hết hạn!');
+
     const ubt = d.usage_by_type||{};
+    const imgTotal = (imgU)+(imgR);
+    const vidTotal = (vidU)+(vidR);
     document.getElementById('usageDetail').innerHTML = `
+      ${warns.length ? `<div style="background:rgba(255,92,92,.15);border:1px solid var(--err);border-radius:8px;padding:10px;margin-bottom:12px;color:var(--err);font-weight:600;font-size:13px">${warns.join(' &nbsp; ')}<br><span style="font-weight:400;font-size:12px;color:var(--text2)">Liên hệ admin để nạp thêm</span></div>` : ''}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
         <div>📋 Plan: <strong>${d.plan||'-'}</strong></div>
-        <div>💰 Credits: <strong>${d.credits_remaining||0}</strong> / ${(d.credits_remaining||0)+(d.credits_used||0)}</div>
-        <div>🎨 Ảnh: <strong>${d.image_used||0}</strong> / ${(d.image_used||0)+(d.image_remaining||0)}</div>
-        <div>🎬 Video: <strong>${d.video_used||0}</strong> / ${(d.video_used||0)+(d.video_remaining||0)}</div>
+        <div>💰 Credits: <strong style="color:${cr<=0?'var(--err)':''}">${cr}</strong> / ${cr+(d.credits_used||0)}</div>
+        <div>🎨 Ảnh: <strong>${imgU}</strong> / ${imgTotal}</div>
+        <div>🎬 Video: <strong>${vidU}</strong> / ${vidTotal}</div>
         <div>📅 Hôm nay: <strong>${d.usage_today||0}</strong> / ${d.rate_limit_daily||'-'}</div>
-        <div>⏰ Hạn: <strong>${d.expires_at ? new Date(d.expires_at).toLocaleDateString('vi-VN') : '∞'}</strong></div>
+        <div>⏰ Hạn: <strong style="color:${days<=0&&d.expires_at?'var(--err)':''}">${d.expires_at ? new Date(d.expires_at).toLocaleDateString('vi-VN') : '∞'}</strong></div>
       </div>
       ${Object.keys(ubt).length ? `<div style="margin-top:12px;padding:10px;background:var(--s2);border-radius:8px">
         <div style="font-size:12px;font-weight:600;margin-bottom:6px">📊 Theo loại:</div>
