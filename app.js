@@ -205,9 +205,10 @@ async function pollJob(job, resultElId){
       if(pgEl) pgEl.style.width = job.progress+'%';
       if(d.status==='completed'){
         const imgEl = document.getElementById('imgs-'+job.id);
-        const count = d.images_count || d.total_prompts || job.prompts.length;
-        for(let i=0;i<count;i++){
-          const img = await loadImage(job.id, i);
+        // Try loading images - try max of reported count or prompt count
+        const maxTry = Math.max(d.images_count||0, d.total_prompts||0, job.prompts.length, 4);
+        for(let i=0;i<maxTry;i++){
+          const img = await loadImageRetry(job.id, i, 3);
           if(img && imgEl){
             const im = document.createElement('img');
             im.src = img; im.style.cssText = 'width:80px;height:80px;object-fit:cover;border-radius:6px;cursor:pointer';
@@ -226,8 +227,20 @@ async function pollJob(job, resultElId){
 async function loadImage(jobId, index){
   try{
     const r = await fetch(`${API}/public/api/v1/jobs/${jobId}/image?index=${index}`,{headers:{'X-API-Key':KEY}});
-    if(r.ok) return URL.createObjectURL(await r.blob());
+    if(r.ok){
+      const blob = await r.blob();
+      if(blob.size > 100) return URL.createObjectURL(blob);
+    }
   }catch{} return null;
+}
+
+async function loadImageRetry(jobId, index, retries){
+  for(let i=0;i<retries;i++){
+    const url = await loadImage(jobId, index);
+    if(url) return url;
+    await sleep(2000);
+  }
+  return null;
 }
 
 // ── Jobs list ──
@@ -267,18 +280,24 @@ async function loadLibrary(){
       const div = document.createElement('div');
       div.className = 'lib-item';
       div.innerHTML = `
-        <img src="" alt="loading" style="background:var(--s2)">
+        <div style="width:100%;aspect-ratio:1;background:var(--s2);display:flex;align-items:center;justify-content:center;color:var(--text2);font-size:12px">⏳</div>
         <div class="info">
           <span class="q">${item.quality||'1K'}</span>
           <div class="prompt-text">${item.prompt||item.job_id}</div>
         </div>
       `;
       el.appendChild(div);
-      // Load image async
-      loadImage(item.job_id, item.index).then(url => {
+      // Load image async with retry
+      loadImageRetry(item.job_id, item.index, 2).then(url => {
+        const placeholder = div.querySelector('div[style]');
         if(url){
-          div.querySelector('img').src = url;
+          const img = document.createElement('img');
+          img.src = url;
+          img.style.cssText = 'width:100%;aspect-ratio:1;object-fit:cover;display:block';
+          placeholder.replaceWith(img);
           div.onclick = () => showLightbox(url);
+        } else {
+          placeholder.textContent = '❌';
         }
       });
     }
