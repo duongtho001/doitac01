@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flow AI — Tạo Ảnh AI</title>
+<meta name="description" content="Tạo ảnh AI chất lượng cao với Flow AI. Text to Image, Reference to Image.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="header">
+  <h1>FLOW AI</h1>
+  <span class="ver">IMAGE</span>
+  <div class="status">
+    <span class="dot" id="statusDot"></span>
+    <span id="statusText">Chưa kết nối</span>
+  </div>
+  <button class="btn btn-sm btn-outline" onclick="openSettings()">⚙️ Cài đặt</button>
+</div>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('t2i')">🎨 Text to Image</div>
+  <div class="tab" onclick="switchTab('r2i')">🖼️ Reference to Image</div>
+  <div class="tab" onclick="switchTab('jobs')">📋 Jobs <span id="jobsBadge" style="background:var(--accent);color:#fff;padding:1px 6px;border-radius:10px;font-size:10px;margin-left:4px;display:none">0</span></div>
+  <div class="tab" onclick="switchTab('library')">📚 Thư viện</div>
+  <div class="tab" onclick="switchTab('usage')">📊 Thống kê</div>
+</div>
+
+<div class="container">
+
+<!-- T2I -->
+<div class="tab-content active" id="tc-t2i">
+  <div class="grid2">
+    <div class="card">
+      <h3>🎨 Text to Image</h3>
+      <div class="field">
+        <label>Prompts (mỗi dòng = 1 ảnh, chạy đồng thời)</label>
+        <textarea id="t2iPrompts" rows="8" placeholder="A cute cat sleeping on a pillow&#10;A sunset over mountains&#10;A futuristic city at night"></textarea>
+        <div class="hint" id="t2iCount">0 prompt</div>
+      </div>
+      <div class="field">
+        <label>Aspect Ratio</label>
+        <div class="ratio-group" id="t2iRatio">
+          <div class="ratio-btn active" data-v="1:1">1:1</div>
+          <div class="ratio-btn" data-v="16:9">16:9</div>
+          <div class="ratio-btn" data-v="9:16">9:16</div>
+          <div class="ratio-btn" data-v="4:3">4:3</div>
+          <div class="ratio-btn" data-v="3:4">3:4</div>
+        </div>
+      </div>
+      <div class="field">
+        <label>Số ảnh mỗi prompt</label>
+        <select id="t2iNum"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select>
+      </div>
+      <div class="field">
+        <label>Chất lượng ảnh</label>
+        <div class="ratio-group" id="t2iUpscale">
+          <div class="ratio-btn active" data-v="Không">1K</div>
+          <div class="ratio-btn" data-v="2K">2K</div>
+          <div class="ratio-btn" data-v="4K">4K</div>
+        </div>
+      </div>
+      <button class="btn btn-primary btn-block" id="t2iBtn" onclick="startT2I()">🚀 Tạo ảnh</button>
+    </div>
+    <div class="card">
+      <h3>📋 Kết quả gần đây</h3>
+      <div id="t2iResults" style="max-height:400px;overflow-y:auto">
+        <p style="color:var(--text2);font-size:13px;text-align:center;padding:40px 0">Chưa có kết quả</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- R2I -->
+<div class="tab-content" id="tc-r2i">
+  <div class="grid2">
+    <div class="card">
+      <h3>🖼️ Reference to Image</h3>
+      <div class="field">
+        <label>Ảnh tham chiếu</label>
+        <div class="upload-zone" id="r2iZone" onclick="document.getElementById('r2iFile').click()">
+          📁 Kéo thả hoặc click để chọn ảnh
+          <input type="file" id="r2iFile" accept="image/*" multiple hidden>
+        </div>
+        <div class="upload-thumbs" id="r2iThumbs"></div>
+      </div>
+      <div class="field">
+        <label>Prompts (mỗi dòng = 1 ảnh)</label>
+        <textarea id="r2iPrompts" rows="5" placeholder="Sản phẩm trên bàn gỗ, studio lighting&#10;Sản phẩm trong tay model"></textarea>
+      </div>
+      <div class="field">
+        <label>Aspect Ratio</label>
+        <div class="ratio-group" id="r2iRatio">
+          <div class="ratio-btn active" data-v="1:1">1:1</div>
+          <div class="ratio-btn" data-v="16:9">16:9</div>
+          <div class="ratio-btn" data-v="9:16">9:16</div>
+        </div>
+      </div>
+      <div class="field">
+        <label>Chất lượng ảnh</label>
+        <div class="ratio-group" id="r2iUpscale">
+          <div class="ratio-btn active" data-v="Không">1K</div>
+          <div class="ratio-btn" data-v="2K">2K</div>
+          <div class="ratio-btn" data-v="4K">4K</div>
+        </div>
+      </div>
+      <button class="btn btn-primary btn-block" id="r2iBtn" onclick="startR2I()">🖼️ Tạo ảnh tham chiếu</button>
+    </div>
+    <div class="card">
+      <h3>📋 Kết quả R2I</h3>
+      <div id="r2iResults" style="max-height:400px;overflow-y:auto">
+        <p style="color:var(--text2);font-size:13px;text-align:center;padding:40px 0">Chưa có kết quả</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Jobs -->
+<div class="tab-content" id="tc-jobs">
+  <div class="card">
+    <h3>📋 Tất cả Jobs</h3>
+    <div id="jobsList"></div>
+  </div>
+</div>
+
+<!-- Library -->
+<div class="tab-content" id="tc-library">
+  <div class="card">
+    <h3>📚 Thư viện ảnh <button class="btn btn-sm btn-outline" onclick="loadLibrary()" style="margin-left:auto">🔄 Refresh</button></h3>
+    <div class="lib-grid" id="libGrid">
+      <p style="color:var(--text2);font-size:13px;text-align:center;padding:40px 0;grid-column:1/-1">Bấm Refresh để tải thư viện</p>
+    </div>
+  </div>
+</div>
+
+<!-- Usage -->
+<div class="tab-content" id="tc-usage">
+  <div class="grid4" style="margin-bottom:16px">
+    <div class="card card-sm stat purple"><div class="num" id="uCredits">-</div><div class="lbl">Credits còn</div></div>
+    <div class="card card-sm stat green"><div class="num" id="uImages">-</div><div class="lbl">Ảnh đã tạo</div></div>
+    <div class="card card-sm stat pink"><div class="num" id="uImgRemain">-</div><div class="lbl">Ảnh còn lại</div></div>
+    <div class="card card-sm stat orange"><div class="num" id="uDays">-</div><div class="lbl">Ngày còn lại</div></div>
+  </div>
+  <div class="grid2">
+    <div class="card">
+      <h3>📊 Chi tiết gói</h3>
+      <div id="usageDetail" style="font-size:13px;line-height:2">Bấm Refresh để xem</div>
+      <button class="btn btn-sm btn-outline" onclick="loadUsage()" style="margin-top:12px">🔄 Refresh</button>
+    </div>
+    <div class="card">
+      <h3>💰 Bảng giá</h3>
+      <table style="width:100%;font-size:13px;border-collapse:collapse">
+        <tr style="border-bottom:1px solid var(--border)"><th style="text-align:left;padding:8px 0;color:var(--text2)">Chất lượng</th><th style="text-align:right;padding:8px 0;color:var(--text2)">Giá</th></tr>
+        <tr style="border-bottom:1px solid var(--border)"><td style="padding:8px 0">Ảnh 1K</td><td style="text-align:right;font-weight:700;color:var(--accent)">100₫</td></tr>
+        <tr><td style="padding:8px 0">Ảnh 2K — 4K</td><td style="text-align:right;font-weight:700;color:var(--orange)">150₫</td></tr>
+      </table>
+      <div style="margin-top:16px;padding:12px;background:var(--s2);border-radius:8px;font-size:12px;color:var(--text2)">
+        📞 Liên hệ: Zalo <strong style="color:var(--text)">Đường Thọ — 0934415387</strong>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<!-- Settings Modal -->
+<div class="settings-overlay" id="settingsOverlay">
+  <div class="settings-box">
+    <h3 style="margin-bottom:16px">⚙️ Cài đặt kết nối</h3>
+    <div class="field">
+      <label>🌐 API Endpoint URL</label>
+      <input type="text" id="cfgUrl" placeholder="https://your-endpoint.com">
+    </div>
+    <div class="field">
+      <label>🔑 API Key</label>
+      <input type="text" id="cfgKey" placeholder="fv_xxxxxxxxxxxx">
+    </div>
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button class="btn btn-outline" onclick="closeSettings()" style="flex:1">Hủy</button>
+      <button class="btn btn-primary" onclick="saveSettings()" style="flex:1">💾 Lưu</button>
+    </div>
+  </div>
+</div>
+
+<!-- Lightbox -->
+<div class="lightbox" id="lightbox" onclick="this.classList.remove('show')">
+  <span class="close">&times;</span>
+  <img id="lbImg">
+</div>
+
+<!-- Toast -->
+<div class="toast-container" id="toasts"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

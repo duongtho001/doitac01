@@ -1,0 +1,328 @@
+// ══════════════════════════════════════════
+// Flow AI — Image Generator App
+// ══════════════════════════════════════════
+let API = localStorage.getItem('flow_api_url') || '';
+let KEY = localStorage.getItem('flow_api_key') || '';
+const H = () => ({'Content-Type':'application/json','X-API-Key':KEY});
+const jobs = []; // {id, type, prompt, status, progress}
+let uploadedPaths = [];
+
+// ── Init ──
+window.addEventListener('DOMContentLoaded', () => {
+  if(!API || !KEY) openSettings();
+  else checkConnection();
+  setupRatio();
+  setupUpload();
+  setupPromptCount();
+});
+
+// ── Settings ──
+function openSettings(){
+  document.getElementById('cfgUrl').value = API;
+  document.getElementById('cfgKey').value = KEY;
+  document.getElementById('settingsOverlay').classList.add('show');
+}
+function closeSettings(){ document.getElementById('settingsOverlay').classList.remove('show'); }
+function saveSettings(){
+  API = document.getElementById('cfgUrl').value.trim().replace(/\/+$/,'');
+  KEY = document.getElementById('cfgKey').value.trim();
+  if(!API||!KEY) return toast('Nhập đầy đủ URL và Key','err');
+  localStorage.setItem('flow_api_url', API);
+  localStorage.setItem('flow_api_key', KEY);
+  closeSettings();
+  checkConnection();
+  toast('Đã lưu cài đặt','ok');
+}
+
+async function checkConnection(){
+  try{
+    const r = await fetch(`${API}/public/api/v1/usage`,{headers:{'X-API-Key':KEY}});
+    if(r.ok){
+      document.getElementById('statusDot').classList.add('on');
+      document.getElementById('statusText').textContent='Đã kết nối';
+      loadUsage();
+    } else {
+      document.getElementById('statusDot').classList.remove('on');
+      document.getElementById('statusText').textContent='Lỗi key';
+    }
+  }catch{
+    document.getElementById('statusDot').classList.remove('on');
+    document.getElementById('statusText').textContent='Không kết nối';
+  }
+}
+
+// ── Tabs ──
+function switchTab(id){
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', t.textContent.toLowerCase().includes(id)));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.getElementById('tc-'+id).classList.add('active');
+  if(id==='library') loadLibrary();
+  if(id==='usage') loadUsage();
+  if(id==='jobs') renderJobs();
+}
+
+// ── Ratio buttons ──
+function setupRatio(){
+  document.querySelectorAll('.ratio-group').forEach(g => {
+    g.querySelectorAll('.ratio-btn').forEach(b => {
+      b.addEventListener('click', () => {
+        g.querySelectorAll('.ratio-btn').forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+      });
+    });
+  });
+}
+function getRatio(groupId){
+  const a = document.querySelector(`#${groupId} .ratio-btn.active`);
+  return a ? a.dataset.v : '1:1';
+}
+
+// ── Prompt counter ──
+function setupPromptCount(){
+  const ta = document.getElementById('t2iPrompts');
+  ta.addEventListener('input', () => {
+    const n = ta.value.trim().split('\n').filter(l=>l.trim()).length;
+    document.getElementById('t2iCount').textContent = n + ' prompt';
+  });
+}
+
+// ── Upload ──
+function setupUpload(){
+  const zone = document.getElementById('r2iZone');
+  const input = document.getElementById('r2iFile');
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault(); zone.classList.remove('dragover');
+    handleFiles(e.dataTransfer.files);
+  });
+  input.addEventListener('change', () => handleFiles(input.files));
+}
+
+async function handleFiles(files){
+  if(!API||!KEY) return toast('Cài đặt API trước','err');
+  const thumbs = document.getElementById('r2iThumbs');
+  for(const f of files){
+    const fd = new FormData(); fd.append('file', f);
+    try{
+      toast('Đang upload '+f.name+'...','info');
+      const r = await fetch(`${API}/public/api/v1/upload-image`,{method:'POST',body:fd,headers:{'X-API-Key':KEY}});
+      const d = await r.json();
+      if(d.path){
+        uploadedPaths.push(d.path);
+        const img = document.createElement('img');
+        img.src = URL.createObjectURL(f);
+        img.className = 'upload-thumb';
+        thumbs.appendChild(img);
+        toast('Upload OK: '+f.name,'ok');
+      }
+    }catch(e){ toast('Upload lỗi: '+e.message,'err'); }
+  }
+}
+
+// ── T2I ──
+async function startT2I(){
+  if(!API||!KEY) return openSettings();
+  const lines = document.getElementById('t2iPrompts').value.trim().split('\n').filter(l=>l.trim());
+  if(!lines.length) return toast('Nhập ít nhất 1 prompt','err');
+  const ratio = getRatio('t2iRatio');
+  const upscale = getRatio('t2iUpscale');
+  const num = parseInt(document.getElementById('t2iNum').value);
+  const btn = document.getElementById('t2iBtn');
+  btn.disabled = true; btn.textContent = '⏳ Đang tạo...';
+  try{
+    const r = await fetch(`${API}/public/api/v1/text-to-image`,{
+      method:'POST', headers:H(),
+      body:JSON.stringify({prompts:lines, aspect_ratio:ratio, num_images:num, upscale_quality:upscale})
+    });
+    const d = await r.json();
+    if(d.job_id){
+      const job = {id:d.job_id, type:'T2I', prompts:lines, status:'queued', progress:0};
+      jobs.unshift(job);
+      toast('Job tạo: '+d.job_id,'ok');
+      pollJob(job, 't2iResults');
+      updateJobsBadge();
+    } else { toast(d.error||d.detail||'Lỗi','err'); }
+  }catch(e){ toast('Lỗi: '+e.message,'err'); }
+  btn.disabled = false; btn.textContent = '🚀 Tạo ảnh';
+}
+
+// ── R2I ──
+async function startR2I(){
+  if(!API||!KEY) return openSettings();
+  if(!uploadedPaths.length) return toast('Upload ảnh tham chiếu trước','err');
+  const lines = document.getElementById('r2iPrompts').value.trim().split('\n').filter(l=>l.trim());
+  if(!lines.length) return toast('Nhập ít nhất 1 prompt','err');
+  const ratio = getRatio('r2iRatio');
+  const upscale = getRatio('r2iUpscale');
+  const btn = document.getElementById('r2iBtn');
+  btn.disabled = true; btn.textContent = '⏳ Đang tạo...';
+  try{
+    const r = await fetch(`${API}/public/api/v1/reference-to-image`,{
+      method:'POST', headers:H(),
+      body:JSON.stringify({prompts:lines, reference_images:uploadedPaths, aspect_ratio:ratio, upscale_quality:upscale})
+    });
+    const d = await r.json();
+    if(d.job_id){
+      const job = {id:d.job_id, type:'R2I', prompts:lines, status:'queued', progress:0};
+      jobs.unshift(job);
+      toast('Job R2I: '+d.job_id,'ok');
+      pollJob(job, 'r2iResults');
+      updateJobsBadge();
+    } else { toast(d.error||d.detail||'Lỗi','err'); }
+  }catch(e){ toast('Lỗi: '+e.message,'err'); }
+  btn.disabled = false; btn.textContent = '🖼️ Tạo ảnh tham chiếu';
+}
+
+// ── Poll Job ──
+async function pollJob(job, resultElId){
+  const el = document.getElementById(resultElId);
+  const card = document.createElement('div');
+  card.style.cssText = 'padding:12px;border-bottom:1px solid var(--border)';
+  card.innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <span style="font-family:monospace;color:var(--accent);font-size:11px">${job.id}</span>
+      <span class="badge badge-run" id="st-${job.id}">queued</span>
+    </div>
+    <div style="font-size:11px;color:var(--text2);margin-bottom:4px">${job.prompts.join(' | ').substring(0,100)}</div>
+    <div class="progress"><div class="progress-fill" id="pg-${job.id}" style="width:0%"></div></div>
+    <div id="imgs-${job.id}" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"></div>
+  `;
+  if(el.querySelector('p')) el.innerHTML = '';
+  el.prepend(card);
+
+  while(true){
+    try{
+      const r = await fetch(`${API}/public/api/v1/jobs/${job.id}`,{headers:{'X-API-Key':KEY}});
+      const d = await r.json();
+      job.status = d.status; job.progress = d.progress||0;
+      const stEl = document.getElementById('st-'+job.id);
+      const pgEl = document.getElementById('pg-'+job.id);
+      if(stEl){
+        stEl.textContent = d.status;
+        stEl.className = 'badge ' + (d.status==='completed'?'badge-ok':d.status==='failed'?'badge-err':'badge-run');
+      }
+      if(pgEl) pgEl.style.width = job.progress+'%';
+      if(d.status==='completed'){
+        const imgEl = document.getElementById('imgs-'+job.id);
+        const count = d.images_count || d.total_prompts || job.prompts.length;
+        for(let i=0;i<count;i++){
+          const img = await loadImage(job.id, i);
+          if(img && imgEl){
+            const im = document.createElement('img');
+            im.src = img; im.style.cssText = 'width:80px;height:80px;object-fit:cover;border-radius:6px;cursor:pointer';
+            im.onclick = () => showLightbox(img);
+            imgEl.appendChild(im);
+          }
+        }
+        updateJobsBadge(); break;
+      }
+      if(d.status==='failed'){ toast('Job failed: '+(d.error||''),'err'); updateJobsBadge(); break; }
+    }catch{}
+    await sleep(3000);
+  }
+}
+
+async function loadImage(jobId, index){
+  try{
+    const r = await fetch(`${API}/public/api/v1/jobs/${jobId}/image?index=${index}`,{headers:{'X-API-Key':KEY}});
+    if(r.ok) return URL.createObjectURL(await r.blob());
+  }catch{} return null;
+}
+
+// ── Jobs list ──
+function renderJobs(){
+  const el = document.getElementById('jobsList');
+  if(!jobs.length){ el.innerHTML='<p style="color:var(--text2);text-align:center;padding:30px">Chưa có jobs</p>'; return; }
+  el.innerHTML = jobs.map(j => `
+    <div class="job-item">
+      <span class="jid">${j.id}</span>
+      <span class="badge ${j.status==='completed'?'badge-ok':j.status==='failed'?'badge-err':'badge-run'}">${j.status}</span>
+      <span style="font-size:11px;color:var(--accent)">${j.type}</span>
+      <span class="jprompt">${j.prompts.join(' | ')}</span>
+      <span style="font-size:11px;color:var(--text2)">${j.progress}%</span>
+    </div>
+  `).join('');
+}
+function updateJobsBadge(){
+  const running = jobs.filter(j=>j.status==='queued'||j.status==='running').length;
+  const b = document.getElementById('jobsBadge');
+  if(running>0){ b.textContent=running; b.style.display='inline'; }
+  else b.style.display='none';
+}
+
+// ── Library ──
+async function loadLibrary(){
+  if(!API||!KEY) return openSettings();
+  const el = document.getElementById('libGrid');
+  el.innerHTML = '<p style="color:var(--text2);text-align:center;padding:30px;grid-column:1/-1">⏳ Đang tải...</p>';
+  try{
+    const r = await fetch(`${API}/public/api/v1/my-library?limit=200`,{headers:{'X-API-Key':KEY}});
+    const d = await r.json();
+    const imgs = d.images||[];
+    if(!imgs.length){ el.innerHTML='<p style="color:var(--text2);text-align:center;padding:40px;grid-column:1/-1">Thư viện trống</p>'; return; }
+    el.innerHTML = '';
+    for(const item of imgs){
+      if(item.status!=='completed') continue;
+      const div = document.createElement('div');
+      div.className = 'lib-item';
+      div.innerHTML = `
+        <img src="" alt="loading" style="background:var(--s2)">
+        <div class="info">
+          <span class="q">${item.quality||'1K'}</span>
+          <div class="prompt-text">${item.prompt||item.job_id}</div>
+        </div>
+      `;
+      el.appendChild(div);
+      // Load image async
+      loadImage(item.job_id, item.index).then(url => {
+        if(url){
+          div.querySelector('img').src = url;
+          div.onclick = () => showLightbox(url);
+        }
+      });
+    }
+  }catch(e){ el.innerHTML='<p style="color:var(--err);text-align:center;padding:30px;grid-column:1/-1">Lỗi: '+e.message+'</p>'; }
+}
+
+// ── Usage ──
+async function loadUsage(){
+  if(!API||!KEY) return;
+  try{
+    const r = await fetch(`${API}/public/api/v1/usage`,{headers:{'X-API-Key':KEY}});
+    const d = await r.json();
+    document.getElementById('uCredits').textContent = d.credits_remaining ?? '-';
+    document.getElementById('uImages').textContent = d.image_used ?? '-';
+    document.getElementById('uImgRemain').textContent = d.image_remaining ?? '-';
+    document.getElementById('uDays').textContent = d.days_remaining ?? '-';
+    const ubt = d.usage_by_type||{};
+    document.getElementById('usageDetail').innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div>📋 Plan: <strong>${d.plan||'-'}</strong></div>
+        <div>💰 Credits: <strong>${d.credits_remaining||0}</strong> / ${(d.credits_remaining||0)+(d.credits_used||0)}</div>
+        <div>🎨 Ảnh: <strong>${d.image_used||0}</strong> / ${(d.image_used||0)+(d.image_remaining||0)}</div>
+        <div>🎬 Video: <strong>${d.video_used||0}</strong> / ${(d.video_used||0)+(d.video_remaining||0)}</div>
+        <div>📅 Hôm nay: <strong>${d.usage_today||0}</strong> / ${d.rate_limit_daily||'-'}</div>
+        <div>⏰ Hạn: <strong>${d.expires_at ? new Date(d.expires_at).toLocaleDateString('vi-VN') : '∞'}</strong></div>
+      </div>
+      ${Object.keys(ubt).length ? `<div style="margin-top:12px;padding:10px;background:var(--s2);border-radius:8px">
+        <div style="font-size:12px;font-weight:600;margin-bottom:6px">📊 Theo loại:</div>
+        ${Object.entries(ubt).map(([k,v])=>`<span style="margin-right:12px">${k.toUpperCase()}: <strong>${v}</strong></span>`).join('')}
+      </div>` : ''}
+    `;
+  }catch{}
+}
+
+// ── Utils ──
+function showLightbox(src){
+  document.getElementById('lbImg').src = src;
+  document.getElementById('lightbox').classList.add('show');
+}
+function toast(msg, type='info'){
+  const t = document.createElement('div');
+  t.className = 'toast '+type;
+  t.textContent = msg;
+  document.getElementById('toasts').appendChild(t);
+  setTimeout(()=>t.remove(), 3000);
+}
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
