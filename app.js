@@ -265,21 +265,29 @@ function updateJobsBadge(){
 }
 
 // ── Library ──
+let libItems = []; // [{job_id, index, quality, prompt, blobUrl}]
+
 async function loadLibrary(){
   if(!API||!KEY) return openSettings();
   const el = document.getElementById('libGrid');
   el.innerHTML = '<p style="color:var(--text2);text-align:center;padding:30px;grid-column:1/-1">⏳ Đang tải...</p>';
+  libItems = [];
   try{
     const r = await fetch(`${API}/public/api/v1/my-library?limit=200`,{headers:{'X-API-Key':KEY}});
     const d = await r.json();
     const imgs = d.images||[];
     if(!imgs.length){ el.innerHTML='<p style="color:var(--text2);text-align:center;padding:40px;grid-column:1/-1">Thư viện trống</p>'; return; }
     el.innerHTML = '';
-    for(const item of imgs){
+    document.getElementById('libToolbar').style.display = 'flex';
+    for(let idx=0; idx<imgs.length; idx++){
+      const item = imgs[idx];
       if(item.status!=='completed') continue;
       const div = document.createElement('div');
       div.className = 'lib-item';
+      div.dataset.idx = idx;
       div.innerHTML = `
+        <div class="check" onclick="event.stopPropagation();toggleSelect(${idx})"></div>
+        <button class="dl-btn" onclick="event.stopPropagation();downloadOne(${idx})" title="Tải ảnh">⬇</button>
         <div style="width:100%;aspect-ratio:1;background:var(--s2);display:flex;align-items:center;justify-content:center;color:var(--text2);font-size:12px">⏳</div>
         <div class="info">
           <span class="q">${item.quality||'1K'}</span>
@@ -287,21 +295,95 @@ async function loadLibrary(){
         </div>
       `;
       el.appendChild(div);
-      // Load image async with retry
+      const libEntry = {job_id:item.job_id, index:item.index, quality:item.quality||'1K', prompt:item.prompt||'', blobUrl:null, el:div};
+      libItems.push(libEntry);
+      // Load async
       loadImageRetry(item.job_id, item.index, 2).then(url => {
         const placeholder = div.querySelector('div[style]');
         if(url){
+          libEntry.blobUrl = url;
           const img = document.createElement('img');
           img.src = url;
           img.style.cssText = 'width:100%;aspect-ratio:1;object-fit:cover;display:block';
           placeholder.replaceWith(img);
-          div.onclick = () => showLightbox(url);
-        } else {
-          placeholder.textContent = '❌';
-        }
+          div.querySelector('img').onclick = () => showLightbox(url);
+        } else { placeholder.textContent = '❌'; }
       });
     }
+    updateSelectedCount();
   }catch(e){ el.innerHTML='<p style="color:var(--err);text-align:center;padding:30px;grid-column:1/-1">Lỗi: '+e.message+'</p>'; }
+}
+
+function toggleSelect(idx){
+  const item = libItems[idx];
+  if(!item) return;
+  item.el.classList.toggle('selected');
+  const chk = item.el.querySelector('.check');
+  chk.textContent = item.el.classList.contains('selected') ? '✓' : '';
+  updateSelectedCount();
+}
+
+function updateSelectedCount(){
+  const n = document.querySelectorAll('.lib-item.selected').length;
+  document.getElementById('selectedCount').textContent = n;
+}
+
+function toggleSelectAll(){
+  const allSelected = libItems.every(i => i.el.classList.contains('selected'));
+  libItems.forEach((item, idx) => {
+    if(allSelected){ item.el.classList.remove('selected'); item.el.querySelector('.check').textContent=''; }
+    else { item.el.classList.add('selected'); item.el.querySelector('.check').textContent='✓'; }
+  });
+  updateSelectedCount();
+}
+
+async function downloadOne(idx){
+  const item = libItems[idx];
+  if(!item) return;
+  if(!item.blobUrl){
+    item.blobUrl = await loadImageRetry(item.job_id, item.index, 2);
+  }
+  if(item.blobUrl) triggerDownload(item.blobUrl, `${item.prompt||item.job_id}_${item.quality}.png`);
+  else toast('Ảnh chưa sẵn sàng','err');
+}
+
+async function downloadSelected(){
+  const selected = libItems.filter((_,i) => libItems[i].el.classList.contains('selected'));
+  if(!selected.length) return toast('Chọn ảnh trước','err');
+  toast(`Đang tải ${selected.length} ảnh...`,'info');
+  for(let i=0;i<selected.length;i++){
+    const item = selected[i];
+    if(!item.blobUrl) item.blobUrl = await loadImageRetry(item.job_id, item.index, 2);
+    if(item.blobUrl) triggerDownload(item.blobUrl, `${(item.prompt||item.job_id).substring(0,30)}_${item.quality}_${i+1}.png`);
+    await sleep(300);
+  }
+  toast(`Đã tải ${selected.length} ảnh`,'ok');
+}
+
+async function downloadAll(){
+  if(!libItems.length) return toast('Thư viện trống','err');
+  toast(`Đang tải ${libItems.length} ảnh...`,'info');
+  for(let i=0;i<libItems.length;i++){
+    const item = libItems[i];
+    if(!item.blobUrl) item.blobUrl = await loadImageRetry(item.job_id, item.index, 2);
+    if(item.blobUrl) triggerDownload(item.blobUrl, `${(item.prompt||item.job_id).substring(0,30)}_${item.quality}_${i+1}.png`);
+    await sleep(300);
+  }
+  toast(`Đã tải ${libItems.length} ảnh`,'ok');
+}
+
+let _currentLbUrl = '';
+function downloadCurrent(){
+  if(_currentLbUrl) triggerDownload(_currentLbUrl, 'flow_ai_image.png');
+}
+
+function triggerDownload(blobUrl, filename){
+  const a = document.createElement('a');
+  a.href = blobUrl;
+  a.download = filename.replace(/[^a-zA-Z0-9_\-\.]/g,'_');
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }
 
 // ── Usage ──
@@ -334,6 +416,7 @@ async function loadUsage(){
 
 // ── Utils ──
 function showLightbox(src){
+  _currentLbUrl = src;
   document.getElementById('lbImg').src = src;
   document.getElementById('lightbox').classList.add('show');
 }

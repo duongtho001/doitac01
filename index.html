@@ -128,6 +128,11 @@
 <div class="tab-content" id="tc-library">
   <div class="card">
     <h3>📚 Thư viện ảnh <button class="btn btn-sm btn-outline" onclick="loadLibrary()" style="margin-left:auto">🔄 Refresh</button></h3>
+    <div id="libToolbar" style="display:none;margin-bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button class="btn btn-sm btn-outline" onclick="toggleSelectAll()" id="selectAllBtn">☑️ Chọn tất cả</button>
+      <button class="btn btn-sm btn-success" onclick="downloadSelected()">⬇️ Tải đã chọn (<span id="selectedCount">0</span>)</button>
+      <button class="btn btn-sm btn-primary" onclick="downloadAll()">📥 Tải tất cả</button>
+    </div>
     <div class="lib-grid" id="libGrid">
       <p style="color:var(--text2);font-size:13px;text-align:center;padding:40px 0;grid-column:1/-1">Bấm Refresh để tải thư viện</p>
     </div>
@@ -184,9 +189,12 @@
 </div>
 
 <!-- Lightbox -->
-<div class="lightbox" id="lightbox" onclick="this.classList.remove('show')">
-  <span class="close">&times;</span>
-  <img id="lbImg">
+<div class="lightbox" id="lightbox" onclick="if(event.target===this)this.classList.remove('show')">
+  <span class="close" onclick="document.getElementById('lightbox').classList.remove('show')">&times;</span>
+  <div style="text-align:center">
+    <img id="lbImg">
+    <div style="margin-top:12px"><button class="btn btn-sm btn-success" id="lbDownload" onclick="downloadCurrent()">⬇️ Tải ảnh này</button></div>
+  </div>
 </div>
 
 <!-- Toast -->
