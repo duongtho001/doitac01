@@ -312,6 +312,7 @@ function updateJobsBadge(){
 
 // ── Library ──
 let libItems = []; // [{job_id, index, quality, prompt, blobUrl}]
+let _libPollTimer = null;
 
 async function loadLibrary(){
   if(!API||!KEY) return openSettings();
@@ -327,7 +328,7 @@ async function loadLibrary(){
     document.getElementById('libToolbar').style.display = 'flex';
     for(let idx=0; idx<imgs.length; idx++){
       const item = imgs[idx];
-      if(item.status!=='completed') continue;
+      if(item.status!=='completed') item.status = 'completed'; // Ảnh đã tạo xong → hiện luôn
       const div = document.createElement('div');
       div.className = 'lib-item';
       div.dataset.idx = idx;
@@ -357,6 +358,19 @@ async function loadLibrary(){
       });
     }
     updateSelectedCount();
+    // ═══ Auto-refresh: nếu có job đang chạy → poll thư viện mỗi 5s ═══
+    if(_libPollTimer) clearInterval(_libPollTimer);
+    const hasRunning = jobs.some(j => j.status==='running' || j.status==='queued');
+    if(hasRunning){
+      _libPollTimer = setInterval(async () => {
+        try{
+          const r2 = await fetch(`${API}/public/api/v1/my-library?limit=200`,{headers:{'X-API-Key':KEY}});
+          const d2 = await r2.json();
+          const newImgs = d2.images||[];
+          if(newImgs.length > libItems.length) loadLibrary(); // Có ảnh mới → reload
+        }catch{}
+      }, 5000);
+    }
   }catch(e){ el.innerHTML='<p style="color:var(--err);text-align:center;padding:30px;grid-column:1/-1">Lỗi: '+e.message+'</p>'; }
 }
 
